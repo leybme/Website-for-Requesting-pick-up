@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gọi xe cứu thương</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      color: #333;
+    }
+
+    .container {
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+      width: 300px;
+      text-align: center;
+    }
+
+    h1 {
+      color: #4CAF50;
+      font-size: 24px;
+    }
+
+    p {
+      font-size: 16px;
+      margin: 10px 0;
+    }
+
+    #userIDValue {
+      font-weight: bold;
+      color: #4CAF50;
+    }
+
+    #sendRequestBtn {
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    #sendRequestBtn:hover {
+      background-color: #45a049;
+    }
+
+    #driverInfo {
+      margin-top: 20px;
+      font-size: 14px;
+      color: #333;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Gọi xe cứu thương</h1>
+
+    <p id="userIDDisplay">User ID: <span id="userIDValue">Đang lấy...</span></p>
+    <p id="driverInfo">
+      <strong>Thông tin tài xế:</strong><br>
+      Số điện thoại: <span id="driverPhone">Đang lấy thông tin...</span>
+    </p>
+
+    <button id="sendRequestBtn">Gửi yêu cầu</button>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, doc, onSnapshot, getDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBvPl8F8euHtvsYITpj0czl7537RAKETlI",
+      authDomain: "smartcard-c5cca.firebaseapp.com",
+      databaseURL: "https://smartcard-c5cca-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "smartcard-c5cca",
+      storageBucket: "smartcard-c5cca.appspot.com",
+      messagingSenderId: "699723361446",
+      appId: "1:699723361446:web:60a342672385c357815867",
+      measurementId: "G-3EJGSB3BG6"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // Lấy UserID từ URL
+    function getUserIDFromURL() {
+      const urlParams = new URLSearchParams(window.location.search);
+      return urlParams.get('userID') || "Không có User ID";
+    }
+
+    // Hiển thị UserID
+    const userID = getUserIDFromURL();
+    document.getElementById("userIDValue").innerText = userID;
+
+    // Gửi yêu cầu đón
+    async function sendRequest() {
+      if (!userID || userID === "Không có User ID") {
+        alert("Vui lòng cung cấp User ID trong URL.");
+        return;
+      }
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          async (position) => {
+            const userLat = position.coords.latitude;
+            const userLng = position.coords.longitude;
+
+            try {
+              // Thêm yêu cầu đón vào Firestore
+              const docRef = await addDoc(collection(db, "ride_requests"), {
+                userID: userID,
+                userLat: userLat,
+                userLng: userLng,
+                status: "pending",
+                acceptedBy: null
+              });
+
+              alert("Yêu cầu đã được gửi thành công! ID: " + docRef.id);
+
+              // Theo dõi trạng thái cuốc xe
+              watchRequestStatus(docRef.id);
+            } catch (error) {
+              console.error("Lỗi khi gửi yêu cầu lên Firestore:", error);
+              alert("Lỗi khi gửi yêu cầu. Kiểm tra console để biết thêm chi tiết.");
+            }
+          },
+          (error) => {
+            console.error("Lỗi khi lấy vị trí:", error);
+            alert("Không thể lấy vị trí của bạn. Hãy kiểm tra quyền truy cập.");
+          }
+        );
+      } else {
+        alert("Trình duyệt của bạn không hỗ trợ vị trí.");
+      }
+    }
+
+    // Theo dõi trạng thái yêu cầu
+    function watchRequestStatus(docId) {
+      const requestDocRef = doc(db, "ride_requests", docId);
+
+      onSnapshot(requestDocRef, (doc) => {
+        const data = doc.data();
+        if (data && data.acceptedBy) {
+          const driverID = data.acceptedBy;
+
+          if (driverID) {
+            // Lấy thông tin tài xế từ collection "drivers" dựa trên driverID
+            getDriverDetails(driverID);
+          }
+        }
+      });
+    }
+
+    // Lấy thông tin tài xế từ Firestore và cập nhật giao diện ngay
+    async function getDriverDetails(driverID) {
+      const driverDocRef = doc(db, "drivers", driverID);
+      const driverDoc = await getDoc(driverDocRef);
+
+      if (driverDoc.exists()) {
+        const driverData = driverDoc.data();
+        if (driverData && driverData.phone_number) {
+          document.getElementById("driverPhone").innerText = driverData.phone_number;
+          document.getElementById("driverInfo").style.display = "block";
+        }
+      } else {
+        console.error("Không tìm thấy tài xế.");
+        alert("Không tìm thấy tài xế.");
+      }
+    }
+
+    // Xử lý sự kiện khi người dùng nhấn nút "Gửi yêu cầu"
+    document.getElementById("sendRequestBtn").addEventListener("click", sendRequest);
+  </script>
+</body>
+</html>
